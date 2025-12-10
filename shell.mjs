@@ -1,7 +1,7 @@
-const http = require("http");
-const url = require("url");
-const { exec } = require("child_process");
-const readline = require("readline");
+import http from "http";
+import url from "url";
+import { exec } from "child_process";
+import readline from "readline";
 
 // ---------------- Terminal Interface ----------------
 
